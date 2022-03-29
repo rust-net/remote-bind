@@ -1,1 +1,7 @@
-# 3389
+# server
+
+```
+$ ./server -h
+Help:
+./server [port] [password]
+```
