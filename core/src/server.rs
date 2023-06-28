@@ -74,7 +74,7 @@ impl Server {
             let password = self.password.clone();
             tokio::spawn(async move {
                 loop {
-                    i!("AGENT({}) -> Reading command...", addr);
+                    i!("AGENT({addr}) -> Reading command...");
                     let cmd: Command = read_cmd(&mut *agent.lock().await, &password).await;
                     wtf!(&cmd);
                     match cmd {
@@ -91,7 +91,7 @@ impl Server {
                                         sleep(Duration::from_millis(5000)).await;
                                         match write_cmd(agent.lock().await.borrow_mut(), Command::Nothing, "").await {
                                             Err(_) => {
-                                                i!("PORT({port}) -> Agent offline, release the port!");
+                                                i!("PORT({port}) -> Agent {addr} offline, release the port!");
                                                 task.abort();
                                                 break;
                                             }
@@ -116,10 +116,13 @@ impl Server {
                                 Some(v) => v,
                                 _ => break,
                             };
+                            let visitor_addr = visitor.peer_addr().unwrap();
+                            i!("AGENT({addr}) -> Response {}. (ID: {id})", visitor_addr);
                             let mut agent = agent.lock().await;
                             let agent = agent.split();
                             let visitor = visitor.split();
                             a2b(visitor, agent).await;
+                            i!("AGENT({addr}) -> Finished {}. (ID: {id})", visitor_addr);
                             break;
                         }
                         Command::Error(ref e) if e.kind() == ErrorKind::PermissionDenied => {

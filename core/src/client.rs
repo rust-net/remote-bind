@@ -38,14 +38,16 @@ impl Client {
             wtf!(&cmd);
             match cmd {
                 Command::Accept { port, id } => {
-                    let mut new_client = Client::new(self.server.clone(), self.password.clone()).await.unwrap();
+                    let mut new_client = match Client::new(self.server.clone(), self.password.clone()).await {
+                        Ok(v) => v,
+                        Err(e) => break e!("新建会话失败：{e}"),
+                    };
                     let _ = write_cmd(&mut new_client.stream, Command::Accept { port, id }, &new_client.password).await;
                     tokio::spawn(async move {
                         let mut local = match TcpStream::connect(local_port).await {
                             Ok(v) => v,
                             Err(e) => {
-                                e!("本地代理服务连接失败! {e}");
-                                return;
+                                return e!("本地代理服务连接失败：{e}");
                             }
                         };
                         let a = local.split();
@@ -54,7 +56,7 @@ impl Client {
                     });
                 }
                 Command::Error(e) => {
-                    eprintln!("{}", e);
+                    e!("会话异常：{}", e);
                     break;
                 }
                 _ => continue,
