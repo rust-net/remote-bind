@@ -31,16 +31,17 @@ impl Client {
             _ => Err(ErrorKind::Other.into()),
         }
     }
-    pub async fn proxy(self: &mut Self, local_port: u16) {
+    pub async fn proxy(self: &mut Self, local_service: String) {
         loop {
             let cmd: Command = read_cmd(&mut self.stream, "").await;
+            let local_port = local_service.clone();
             wtf!(&cmd);
             match cmd {
                 Command::Accept { port, id } => {
                     let mut new_client = Client::new(self.server.clone(), self.password.clone()).await.unwrap();
                     let _ = write_cmd(&mut new_client.stream, Command::Accept { port, id }, &new_client.password).await;
                     tokio::spawn(async move {
-                        let mut local = match TcpStream::connect(format!("127.0.0.1:{}", local_port)).await {
+                        let mut local = match TcpStream::connect(local_port).await {
                             Ok(v) => v,
                             Err(e) => {
                                 e!("本地代理服务连接失败! {e}");

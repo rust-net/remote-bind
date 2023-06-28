@@ -33,7 +33,7 @@ mod tests {
         match c.bind(9833).await {
             Ok(()) => {
                 println!("服务已连接！");
-                c.proxy(3389).await;
+                c.proxy(format!("127.0.0.1:3389")).await;
             }
             Err(e) => println!("连接失败！{}", e.to_string()),
         };
