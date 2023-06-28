@@ -1,6 +1,0 @@
-[build]
-target = "x86_64-unknown-linux-gnu"
-rustflags = ["-C", "target-feature=+crt-static", "-Clink-args=-fPIC"]
-
-[target.x86_64-unknown-linux-gnu]
-linker = "gcc"

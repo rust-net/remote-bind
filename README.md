@@ -1,7 +1,7 @@
-# remote_bind
+# remote-bind
 将本地服务映射到公网
 
-## example
+## 示例
 在服务器 `124.221.61.142` 的 `1234` 端口上运行server，并设置密码为 `passwd` ：
 ```
 $ ./server 1234 passwd
