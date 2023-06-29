@@ -15,7 +15,9 @@ pub struct Client {
 
 impl Client {
     pub async fn new(server: String, password: String) -> std::io::Result<Self> {
+        i!("正在连接");
         let stream: TcpStream = TcpStream::connect(&server).await?;
+        i!("连接完成");
         Ok(Self {
             server,
             password,

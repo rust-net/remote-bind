@@ -54,15 +54,18 @@ fn serv() {
 }
 
 async fn boot(server: String, port: u16, password: String, local_service: String) {
-    let mut c = match Client::new(server, password).await {
+    i!("正在连接服务器：{server}");
+    let mut c = match Client::new(server.clone(), password).await {
         Ok(v) => v,
         Err(e) => {
             return e!("连接失败！{}", e.to_string());
         }
     };
+    i!("正在绑定端口：{port}");
     match c.bind(port).await {
         Ok(()) => {
-            i!("服务已连接！");
+            let host = server.split(":").next().unwrap();
+            i!("服务已绑定: {} -> {}:{}", local_service, host, port);
             c.proxy(local_service).await;
         }
         Err(e) => e!("绑定失败！{}", e.to_string()),

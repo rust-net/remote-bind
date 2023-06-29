@@ -3,4 +3,5 @@ members = [
     "core",
     "server",
     "client",
+    "android",
 ]

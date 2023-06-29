@@ -43,6 +43,8 @@ pub mod log {
 
 #[cfg(target_os = "android")]
 pub mod log {
+    pub const FMT: *const u8 = "%s\0".as_ptr();
+
     extern {
         // int __android_log_write(int prio, const char* tag, const char* text);
         // int __android_log_print(int prio, const char* tag, const char* fmt, ...) __attribute__((__format__(printf, 3, 4)));
@@ -52,7 +54,7 @@ pub mod log {
     #[macro_export]
     macro_rules! log {
         ($type: expr, $($arg: tt)+) => {{
-            use $crate::log::Level;
+            use $crate::log::{Level, log};
 
             let level: Level = $type;
             let tag = format!("{}:{}\0", file!(), line!());
