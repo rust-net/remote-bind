@@ -40,6 +40,11 @@ pub fn stop(handler: String) {
     });
 }
 
+#[no_mangle]
+pub extern "C" fn test() {
+    i!("Hello, Test from librust.so!");
+}
+
 fn serv(id: String, server: String, port: u16, password: String, local_service: String) {
     RUNTIME.block_on(async {
         let task = tokio::spawn(async move {

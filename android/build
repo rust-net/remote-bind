@@ -1,1 +1,2 @@
-RUSTC_BOOTSTRAP=1 cargo build --target "aarch64-linux-android" -Z unstable-options --out-dir ../../jniLibs/arm64-v8a
+#RUSTC_BOOTSTRAP=1 cargo build --target "aarch64-linux-android" -Z unstable-options --out-dir ../../jniLibs/arm64-v8a
+RUSTC_BOOTSTRAP=1 cargo build --target "aarch64-linux-android" -Z unstable-options --out-dir Z:\\AndroidProjs\\RemoteBind\\app\\src\\main\\jniLibs\\arm64-v8a
