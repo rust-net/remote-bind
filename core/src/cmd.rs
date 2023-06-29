@@ -102,7 +102,7 @@ pub async fn read_cmd(tcp: &mut TcpStream, password: &str) -> Command {
         }
         Some("accept") => {
             let mut r = Command::invalid_data();
-            if let (Some(port), Some(id), Some(addr)) = (cmds.next(), cmds.next(), cmds.next()) {
+            if let (Some(port), Some(id), addr) = (cmds.next(), cmds.next(), cmds.next().unwrap_or_default()) {
                 if let Ok(port) = port.parse::<u16>() {
                     r = Command::Accept { port, id: id.into(), addr: addr.into() }
                 }
