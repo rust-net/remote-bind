@@ -4,6 +4,7 @@ mod cmd;
 pub mod log;
 pub mod server;
 
+#[allow(unused)]
 mod tests {
     use super::*;
 

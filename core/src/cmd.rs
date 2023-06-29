@@ -13,8 +13,12 @@ pub enum Command {
         port: u16,
     },
     Accept {
+        /// 远程绑定的端口号
         port: u16,
+        /// 会话ID
         id: String,
+        /// 访问者地址
+        addr: String,
     },
     Nothing,
     Success,
@@ -98,9 +102,9 @@ pub async fn read_cmd(tcp: &mut TcpStream, password: &str) -> Command {
         }
         Some("accept") => {
             let mut r = Command::invalid_data();
-            if let (Some(port), Some(id)) = (cmds.next(), cmds.next()) {
+            if let (Some(port), Some(id), Some(addr)) = (cmds.next(), cmds.next(), cmds.next()) {
                 if let Ok(port) = port.parse::<u16>() {
-                    r = Command::Accept { port, id: id.into() }
+                    r = Command::Accept { port, id: id.into(), addr: addr.into() }
                 }
             }
             r
@@ -120,8 +124,8 @@ pub async fn write_cmd(tcp: &mut TcpStream, cmd: Command, password: &str) -> std
         Command::Bind { port } => {
             format!("bind {port}")
         }
-        Command::Accept { port, id} => {
-            format!("accept {port} {id}")
+        Command::Accept { port, id, addr} => {
+            format!("accept {port} {id} {addr}")
         }
         Command::Success => {
             format!("success")

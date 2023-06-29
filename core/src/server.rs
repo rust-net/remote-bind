@@ -14,7 +14,6 @@ use crate::{
 use uuid::Uuid;
 
 pub struct Server {
-    address: String,
     password: String,
     listener: TcpListener,
 }
@@ -36,7 +35,7 @@ async fn bind(port: u16, agent: Arc<Mutex<TcpStream>>) -> std::io::Result<JoinHa
             i!("PORT({port}) -> Tcp request from client: {addr}. (ID: {id})");
             let _ = write_cmd(
                 agent.lock().await.borrow_mut(),
-                Command::Accept { port, id: id.clone() },
+                Command::Accept { port, id: id.clone(), addr: addr.to_string() },
                 "",
             ).await;
             VISITORS.lock().await.insert(id.clone(), visitor);
@@ -59,22 +58,21 @@ impl Server {
     pub async fn new(address: String, password: String) -> std::io::Result<Self> {
         let listener = TcpListener::bind(&address).await?;
         Ok(Self {
-            address,
             password,
             listener,
         })
     }
     pub async fn serv(self: &Self) {
         loop {
-            let (agent, addr) = match self.listener.accept().await {
+            let (agent, agent_addr) = match self.listener.accept().await {
                 Ok((tcp, addr)) => (Arc::new(Mutex::new(tcp)), addr),
-                Err(e) => break,
+                Err(e) => break e!("Accept error: {e}"),
             };
-            i!("PORT({}) -> Agent connected: {}", self.listener.local_addr().unwrap().port(), addr);
+            i!("PORT({}) -> Agent connected: {}", self.listener.local_addr().unwrap().port(), agent_addr);
             let password = self.password.clone();
             tokio::spawn(async move {
                 loop {
-                    i!("AGENT({addr}) -> Reading command...");
+                    i!("AGENT({agent_addr}) -> Reading command...");
                     let cmd: Command = read_cmd(&mut *agent.lock().await, &password).await;
                     wtf!(&cmd);
                     match cmd {
@@ -91,13 +89,14 @@ impl Server {
                                         sleep(Duration::from_millis(5000)).await;
                                         match write_cmd(agent.lock().await.borrow_mut(), Command::Nothing, "").await {
                                             Err(_) => {
-                                                i!("PORT({port}) -> Agent {addr} offline, release the port!");
+                                                i!("PORT({port}) -> Agent {agent_addr} offline, release the port!");
                                                 task.abort();
                                                 break;
                                             }
                                             _ => ()
                                         }
                                     }
+                                    break; // End the Binding
                                 }
                                 Err(e) => {
                                     // &mut *conn.lock().await -> conn.lock().await.borrow_mut()
@@ -111,18 +110,18 @@ impl Server {
                                 }
                             };
                         }
-                        Command::Accept { port, id } => {
+                        Command::Accept { port: _, id, addr: _ } => {
                             let mut visitor = match VISITORS.lock().await.remove(&id) {
                                 Some(v) => v,
                                 _ => break,
                             };
                             let visitor_addr = visitor.peer_addr().unwrap();
-                            i!("AGENT({addr}) -> Response {}. (ID: {id})", visitor_addr);
+                            i!("AGENT({agent_addr}) -> Response {}. (ID: {id})", visitor_addr);
                             let mut agent = agent.lock().await;
                             let agent = agent.split();
                             let visitor = visitor.split();
                             a2b(visitor, agent).await;
-                            i!("AGENT({addr}) -> Finished {}. (ID: {id})", visitor_addr);
+                            i!("AGENT({agent_addr}) -> Finished {}. (ID: {id})", visitor_addr);
                             break;
                         }
                         Command::Error(ref e) if e.kind() == ErrorKind::PermissionDenied => {

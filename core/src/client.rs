@@ -34,17 +34,19 @@ impl Client {
     pub async fn proxy(self: &mut Self, local_service: String) {
         loop {
             let cmd: Command = read_cmd(&mut self.stream, "").await;
-            let local_port = local_service.clone();
+            let local_service = local_service.clone();
             wtf!(&cmd);
             match cmd {
-                Command::Accept { port, id } => {
+                Command::Accept { port, id, addr } => {
+                    let session_id = id.clone();
+                    i!("Accept -> Response {addr}. (ID: {session_id})");
                     let mut new_client = match Client::new(self.server.clone(), self.password.clone()).await {
                         Ok(v) => v,
                         Err(e) => break e!("新建会话失败：{e}"),
                     };
-                    let _ = write_cmd(&mut new_client.stream, Command::Accept { port, id }, &new_client.password).await;
+                    let _ = write_cmd(&mut new_client.stream, Command::Accept { port, id, addr: "".into() }, &new_client.password).await;
                     tokio::spawn(async move {
-                        let mut local = match TcpStream::connect(local_port).await {
+                        let mut local = match TcpStream::connect(local_service).await {
                             Ok(v) => v,
                             Err(e) => {
                                 return e!("本地代理服务连接失败：{e}");
@@ -53,6 +55,7 @@ impl Client {
                         let a = local.split();
                         let b = new_client.stream.split();
                         a2b(a, b).await;
+                        i!("Accept -> Finished {addr}. (ID: {session_id})");
                     });
                 }
                 Command::Error(e) => {
