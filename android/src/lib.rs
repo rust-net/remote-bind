@@ -1,4 +1,5 @@
 #![allow(unused)]
+mod symbol;
 
 use core::client::Client;
 use core::log::*;
@@ -21,8 +22,7 @@ static TASKS: Lazy<Mutex<HashMap<String, JoinHandle<()>>>> = Lazy::new(|| {
     Mutex::new(HashMap::new())
 });
 
-#[no_mangle]
-pub fn start(server: String, port: u16, password: String, local_service: String) -> String {
+fn start(server: String, port: u16, password: String, local_service: String) -> String {
     let id = Uuid::new_v4().to_string();
     let handler = id.clone();
     std::thread::spawn(move || {
@@ -31,18 +31,12 @@ pub fn start(server: String, port: u16, password: String, local_service: String)
     return handler;
 }
 
-#[no_mangle]
-pub fn stop(handler: String) {
+fn stop(handler: String) {
     RUNTIME.block_on(async {
         let task = TASKS.lock().await.remove(&handler).unwrap();
         task.abort();
         i!("任务 {handler} 已取消");
     });
-}
-
-#[no_mangle]
-pub extern "C" fn test() {
-    i!("Hello, Test from librust.so!");
 }
 
 fn serv(id: String, server: String, port: u16, password: String, local_service: String) {

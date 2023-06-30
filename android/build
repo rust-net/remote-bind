@@ -1,2 +1,16 @@
-#RUSTC_BOOTSTRAP=1 cargo build --target "aarch64-linux-android" -Z unstable-options --out-dir ../../jniLibs/arm64-v8a
-RUSTC_BOOTSTRAP=1 cargo build --target "aarch64-linux-android" -Z unstable-options --out-dir Z:\\AndroidProjs\\RemoteBind\\app\\src\\main\\jniLibs\\arm64-v8a
+if [[ $(uname -o) == "Cygwin" ]]; then
+    echo "Running in Cygwin"
+    # RUSTC_BOOTSTRAP=1 cargo build --target "aarch64-linux-android" -Z unstable-options --out-dir ../../jniLibs/arm64-v8a
+    APP="Z:\AndroidProjs\RemoteBind\app\src\main"
+    APP="E:\Github\remote-bind-apk\app\src\main"
+    OUTDIR="$APP\jniLibs\arm64-v8a"
+    # IS_RELEASE="--release"
+    RUSTC_BOOTSTRAP=1 cargo build $IS_RELEASE --target "aarch64-linux-android" -Z unstable-options --out-dir $OUTDIR ||
+        # 如果构建失败，可能是因为OUTDIR目录无法创建，尝试在当前目录构建
+        RUSTC_BOOTSTRAP=1 cargo build $IS_RELEASE --target "aarch64-linux-android" -Z unstable-options --out-dir .
+    # 生成 C++ 绑定
+    # ./cbind
+    cbindgen --output "$APP/cpp/rust.h"
+else
+    echo "Not running in Cygwin"
+fi
