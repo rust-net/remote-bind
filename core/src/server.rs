@@ -87,13 +87,26 @@ impl Server {
                                     // KEEPALIVE
                                     loop {
                                         sleep(Duration::from_millis(5000)).await;
-                                        match write_cmd(agent.lock().await.borrow_mut(), Command::Nothing, "").await {
+                                        // Bug: 代理人已经死掉还能写入命令
+                                        let mut agent = agent.lock().await;
+                                        let agent = agent.borrow_mut();
+                                        match write_cmd(agent, Command::Nothing, "").await {
                                             Err(_) => {
                                                 i!("PORT({port}) -> Agent {agent_addr} offline, release the port!");
                                                 task.abort();
                                                 break;
                                             }
                                             _ => ()
+                                        }
+                                        match read_cmd(agent, "").await {
+                                            Command::Nothing => {
+                                                i!("AGENT({agent_addr}) -> Living"); 
+                                            }
+                                            _ => {
+                                                i!("PORT({port}) -> Agent {agent_addr} no response, release the port!");
+                                                task.abort();
+                                                break;
+                                            }
                                         }
                                     }
                                     break; // End the Binding
