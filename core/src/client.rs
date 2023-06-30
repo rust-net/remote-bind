@@ -64,6 +64,9 @@ impl Client {
                     e!("会话异常：{}", e);
                     break;
                 }
+                Command::Nothing => {
+                    let _ = write_cmd(&mut self.stream, Command::Nothing, "").await;
+                },
                 _ => continue,
             };
         }
