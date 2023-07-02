@@ -66,7 +66,11 @@ async fn boot(server: String, port: u16, password: String, local_service: String
         Ok(()) => {
             let host = server.split(":").next().unwrap();
             i!("服务已绑定: {} -> {}:{}", local_service, host, port);
-            c.proxy(local_service).await;
+            c.proxy(local_service, |_task| {
+                async move {
+                    // task.abort();
+                }
+            }).await;
         }
         Err(e) => e!("绑定失败！{}", e.to_string()),
     };

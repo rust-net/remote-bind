@@ -1,6 +1,6 @@
-use std::io::{Error, ErrorKind};
+use std::{io::{Error, ErrorKind}, future::Future};
 
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, task::JoinHandle};
 
 use crate::{
     cmd::{read_cmd, write_cmd, Command},
@@ -33,8 +33,13 @@ impl Client {
             _ => Err(ErrorKind::Other.into()),
         }
     }
-    pub async fn proxy(self: &mut Self, local_service: String) {
+    pub async fn proxy</*F,*/R>(self: &mut Self, local_service: String, handle: /*F*/impl Fn(JoinHandle<()>) -> R)
+    where
+        // F: Fn(JoinHandle<()>) -> R,
+        R: Future<Output = ()>,
+    {
         loop {
+            i!("就是读取命令");
             let cmd: Command = read_cmd(&mut self.stream, "").await;
             let local_service = local_service.clone();
             wtf!(&cmd);
@@ -47,7 +52,8 @@ impl Client {
                         Err(e) => break e!("新建会话失败：{e}"),
                     };
                     let _ = write_cmd(&mut new_client.stream, Command::Accept { port, id, addr: "".into() }, &new_client.password).await;
-                    tokio::spawn(async move {
+                    // 请考虑：这些任务应该如何取消？
+                    let task = tokio::spawn(async move {
                         let mut local = match TcpStream::connect(local_service).await {
                             Ok(v) => v,
                             Err(e) => {
@@ -59,6 +65,7 @@ impl Client {
                         a2b(a, b).await;
                         i!("Accept -> Finished {addr}. (ID: {session_id})");
                     });
+                    handle(task).await;
                 }
                 Command::Error(e) => {
                     e!("会话异常：{}", e);
