@@ -18,7 +18,7 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
         .build()
         .unwrap()
 });
-static TASKS: Lazy<Mutex<HashMap<String, JoinHandle<()>>>> = Lazy::new(|| {
+static TASKS: Lazy<Mutex<HashMap<String, Vec<JoinHandle<()>>>>> = Lazy::new(|| {
     Mutex::new(HashMap::new())
 });
 
@@ -33,25 +33,34 @@ fn start(server: String, port: u16, password: String, local_service: String) -> 
 
 fn stop(handler: String) {
     RUNTIME.block_on(async {
-        let task = TASKS.lock().await.remove(&handler).unwrap();
-        task.abort();
-        i!("任务 {handler} 已取消");
+        match TASKS.lock().await.remove(&handler) {
+            Some(tasks) => {
+                for task in tasks {
+                    task.abort();
+                }
+                i!("任务 {handler} 已取消");
+            }
+            _ => ()
+        }
     });
 }
 
 fn serv(id: String, server: String, port: u16, password: String, local_service: String) {
+    stop(id.clone());
     RUNTIME.block_on(async {
+        let _id = id.clone();
         let task = tokio::spawn(async move {
             loop {
-                boot(server.clone(), port, password.clone(), local_service.clone()).await;
+                boot(_id.clone(), server.clone(), port, password.clone(), local_service.clone()).await;
                 tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
             }
         });
-        TASKS.lock().await.insert(id, task);
+        let mut tasks = TASKS.lock().await;
+        tasks.insert(id, vec![task]);
     });
 }
 
-async fn boot(server: String, port: u16, password: String, local_service: String) {
+async fn boot(id: String, server: String, port: u16, password: String, local_service: String) {
     i!("正在连接服务器：{server}");
     let mut c = match Client::new(server.clone(), password).await {
         Ok(v) => v,
@@ -65,8 +74,15 @@ async fn boot(server: String, port: u16, password: String, local_service: String
             let host = server.split(":").next().unwrap();
             i!("服务已绑定: {} -> {}:{}", local_service, host, port);
             c.proxy(local_service, |task| {
+                let id = id.clone();
                 async move {
-                    // task.abort();
+                    let mut tasks = TASKS.lock().await;
+                    match tasks.get_mut(&id) {
+                        Some(vec) => {
+                            vec.push(task);
+                        }
+                        _ => ()
+                    }
                 }
             }).await;
         }

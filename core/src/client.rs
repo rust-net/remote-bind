@@ -39,7 +39,6 @@ impl Client {
         R: Future<Output = ()>,
     {
         loop {
-            i!("就是读取命令");
             let cmd: Command = read_cmd(&mut self.stream, "").await;
             let local_service = local_service.clone();
             wtf!(&cmd);
