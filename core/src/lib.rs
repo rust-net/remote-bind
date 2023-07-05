@@ -1,4 +1,4 @@
-mod a2b;
+pub mod a2b;
 pub mod client;
 mod cmd;
 pub mod log;
