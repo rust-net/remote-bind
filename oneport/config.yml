@@ -1,0 +1,9 @@
+rules:
+  - rule: HTTP
+    address: 127.0.0.1:80
+  - rule: 3
+    address: 127.0.0.1:3389
+  - rule: [0x53, 0x53]
+    address: 127.0.0.1:3389
+  - rule: $SSH
+    address: 127.0.0.1:22
