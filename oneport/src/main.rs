@@ -2,12 +2,9 @@ mod config;
 
 use core::*;
 use config::*;
-use once_cell::sync::Lazy;
 use std::{net::SocketAddr, time::Duration};
 
-use tokio::{net::{TcpListener, TcpStream}, io::AsyncWriteExt, task::JoinHandle, sync::Mutex, time::sleep};
-
-static API: Lazy<Mutex<String>> = Lazy::new(|| Mutex::new("".into()));
+use tokio::{net::{TcpListener, TcpStream}, io::AsyncWriteExt, task::JoinHandle, time::sleep};
 
 #[tokio::main]
 async fn main() {
@@ -19,23 +16,42 @@ async fn main() {
                 config_file = args.next();
             },
             "--reload" | "-reload" | "--r" | "-r" => {
-                let api = API.lock().await;
-                let _ = TcpStream::connect(api.as_str()).await;
-                return;
+                return reload(config_file).await;
             }
             _ => {}
         }
-    };
+    }
     loop {
         boot(config_file.clone()).await;
         sleep(Duration::from_millis(5000)).await;
     }
 }
 
+/// 热重启, 目前暂时不支持修改热重启接口, 修改将导致无法再次通过命令行进行热重启
+async fn reload(config_file: Option<String>) {
+    let config = match read_config(config_file).await {
+        Some(v) => v,
+        None => return,
+    };
+    match load_config(&config).await {
+        Ok((_listen, api)) => {
+            match TcpStream::connect(api).await {
+                Ok(_) => {
+                    i!("Restarting...");
+                }
+                _ => ()
+            }
+        },
+        Err(e) => {
+            return e!("Config load failed: {e}");
+        }
+    }
+}
+
 async fn boot(config_file: Option<String>) {
-    let config = match find_config(config_file).await {
-        Ok(v) => v,
-        _ => return e!("Not found the config file(such as: config.yml, oneport.yml)!"),
+    let config = match read_config(config_file).await {
+        Some(v) => v,
+        None => return,
     };
     let (listen, api) = match load_config(&config).await {
         Ok((listen, api)) => {
@@ -47,12 +63,10 @@ async fn boot(config_file: Option<String>) {
         }
     };
     let task = tokio::spawn(boot_oneport(listen));
-    let mut mutex_api = API.lock().await;
-    *mutex_api = api.clone();
     boot_api(api, task).await;
 }
 
-/// 默认监听 127.0.0.111:1111, 有客户端连接时, 在不断开已有会话的前提下重启服务
+/// 启动热重启服务, 默认监听 127.0.0.111:11111, 当有客户端连接时, 在不断开已有会话的前提下重启服务
 async fn boot_api(api: String, task: JoinHandle<()>) {
     i!("Starting api service on {api}");
     let listener = TcpListener::bind(api).await.unwrap();
@@ -66,6 +80,7 @@ async fn boot_api(api: String, task: JoinHandle<()>) {
     }
 }
 
+/// 启动oneport主服务, 默认监听 0.0.0.0:1111
 async fn boot_oneport(listen: String) {
     i!("Starting oneport service on {listen}");
     let listener = TcpListener::bind(listen).await.unwrap();
@@ -75,6 +90,7 @@ async fn boot_oneport(listen: String) {
             Err(e) => unreachable!("{:?}", e),
         };
         i!("Request {addr} incoming");
+        // Feature: 已有的会话不会在热重启时断开
         tokio::spawn(async move {
             serv(visitor, addr).await;
         });
@@ -100,9 +116,7 @@ async fn serv(mut visitor: TcpStream, addr: SocketAddr) {
             return;
         }
     }
-    for i in 0..2 {
-        d!("Request {addr} msg[{}] = {}", i, msg[i]);
-    }
+    i!("Request {addr} msg = {:?}", &msg[..if msg.len() > 10 { 10 } else { msg.len() }]);
     let rules = RULES.lock().await;
     let mut address = None;
     for (rule, target) in rules.as_slice() {

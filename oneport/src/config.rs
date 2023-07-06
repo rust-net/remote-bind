@@ -9,7 +9,7 @@ use yaml_rust::YamlLoader;
 pub static RULES: Lazy<Mutex<Vec<(Vec<u8>, String)>>> = Lazy::new(|| Mutex::new(Vec::new()));
 static CONFIG_PATHS: Lazy<Vec<&str>> = Lazy::new(|| vec!["config.yml", "oneport.yml", "oneport/config.yml", "oneport/oneport.yml"]);
 static LISTEN: &str = "0.0.0.0:1111";
-static LOCAL_API: &str = "127.0.0.111:1111";
+static LOCAL_API: &str = "127.0.0.111:11111";
 
 /// 解引用内置规则
 fn dereference(key: &str) -> Vec<Vec<u8>> {
@@ -25,16 +25,35 @@ fn dereference(key: &str) -> Vec<Vec<u8>> {
     }
 }
 
-pub async fn find_config(file: Option<String>) -> Result<String, ()> {
+/// 以UTF-8编码读取指定的配置文件文本内容, 如果file为None, 则使用默认配置文件
+pub async fn read_config(file: Option<String>) -> Option<String> {
+    match find_config(file.clone()).await {
+        Some(v) => Some(v),
+        None => {
+            e!(
+                "Not found the config file({})!",
+                if file.is_none() {
+                    "such as: config.yml, oneport.yml"
+                } else {
+                    file.as_ref().unwrap()
+                }
+            );
+            None
+        }
+    }
+}
+
+/// 如果未从命令行指定配置文件, 则尝试加载默认配置文件
+async fn find_config(file: Option<String>) -> Option<String> {
     match file {
         Some(file) => {
             i!("Finding config: {file}");
             let config = match tokio::fs::read(file).await {
                 Ok(v) => v,
-                _ => return Err(()),
+                _ => return None,
             };
             let config = String::from_utf8(config).unwrap_or_default();
-            return Ok(config);
+            Some(config)
         }
         None => {
             for file in CONFIG_PATHS.as_slice() {
@@ -44,13 +63,14 @@ pub async fn find_config(file: Option<String>) -> Result<String, ()> {
                     _ => continue,
                 };
                 let config = String::from_utf8(config).unwrap_or_default();
-                return Ok(config);
+                return Some(config);
             }
+            None
         }
     }
-    Err(())
 }
 
+/// 根据JSON字符串加载规则, 返回监听地址和API地址
 pub async fn load_config(config: &str) -> std::io::Result<(String, String)> {
     let config = YamlLoader::load_from_str(config)
         .map_err(|_err| {
