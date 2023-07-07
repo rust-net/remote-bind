@@ -41,6 +41,7 @@ rules:
     address: 127.0.0.1:4444
 ```
 目前的内置规则有：`$SSH`, `$RDP`, `$HTTP`
+
 规则按顺序匹配，越靠前优先级越高
 
 
@@ -51,3 +52,8 @@ $ oneport -r
 $ # or
 $ oneport --reload
 ```
+
+
+# usage
+![image](https://github.com/develon2015/remote-bind/assets/27133157/b6326901-510d-41ac-80ae-46983c91a8b9)
+![image](https://github.com/develon2015/remote-bind/assets/27133157/366e0194-9cb9-47b1-ab70-ab9a9d13af8d)
