@@ -69,7 +69,12 @@ async fn find_config(file: Option<String>) -> Option<String> {
                     Ok(v) => v,
                     _ => continue,
                 };
-                let config = String::from_utf8(config).unwrap_or_default();
+                let config = if config[..3] == vec![0xEF, 0xBB, 0xBF] {
+                    &config[3..]
+                } else {
+                    &config
+                };
+                let config = String::from_utf8_lossy(config).to_string();
                 return Some(config);
             }
             None
