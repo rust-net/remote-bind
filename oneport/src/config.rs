@@ -52,7 +52,14 @@ async fn find_config(file: Option<String>) -> Option<String> {
                 Ok(v) => v,
                 _ => return None,
             };
-            let config = String::from_utf8(config).unwrap_or_default();
+            // BOM 编码的 UTF-8 字符串将从以下三个字节开始：EF BB BF
+            // 从文件/流中提取字符串时，必须忽略这些字节（如果存在）。
+            let config = if config[..3] == vec![0xEF, 0xBB, 0xBF] {
+                &config[3..]
+            } else {
+                &config
+            };
+            let config = String::from_utf8_lossy(config).to_string();
             Some(config)
         }
         None => {
