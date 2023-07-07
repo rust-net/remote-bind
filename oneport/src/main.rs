@@ -120,7 +120,7 @@ async fn serv(mut visitor: TcpStream, addr: SocketAddr) {
     let rules = RULES.lock().await;
     let mut address = None;
     for (rule, target) in rules.as_slice() {
-        if rule == &msg[..rule.len()] {
+        if rule.len() <= msg.len() && rule == &msg[..rule.len()] {
             i!("Request {addr} matched: {target}");
             address = Some(target.clone());
             break;
