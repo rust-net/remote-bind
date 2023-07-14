@@ -6,8 +6,8 @@ config:
 
 rules:
     # 字符串匹配
-  - rule: GET
-    address: 127.0.0.1:80
+  - rule: GET /oneport/status
+    address: 127.0.0.111:11111
     # 首字节匹配
   - rule: 3
     address: 127.0.0.1:3389

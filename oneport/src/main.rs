@@ -1,13 +1,16 @@
 mod config;
+mod api;
 
 use core::*;
+use api::*;
 use config::*;
 use std::{net::SocketAddr, time::Duration};
 
-use tokio::{net::{TcpListener, TcpStream}, io::AsyncWriteExt, task::JoinHandle, time::sleep};
+use tokio::{net::{TcpListener, TcpStream}, io::AsyncWriteExt, time::sleep};
 
 #[tokio::main]
 async fn main() {
+    panic::custom_panic();
     let mut args = std::env::args().skip(1);
     let mut config_file = None;
     while let Some(arg)= args.next() {
@@ -63,21 +66,13 @@ async fn boot(config_file: Option<String>) {
         }
     };
     let task = tokio::spawn(boot_oneport(listen));
-    boot_api(api, task).await;
-}
-
-/// 启动热重启服务, 默认监听 127.0.0.111:11111, 当有客户端连接时, 在不断开已有会话的前提下重启服务
-async fn boot_api(api: String, task: JoinHandle<()>) {
-    i!("Starting api service on {api}");
-    let listener = TcpListener::bind(api).await.unwrap();
-    loop {
-        let (_client, addr) = listener.accept().await.unwrap();
-        i!("API Request from {addr}");
-        task.abort();
-        task.await.unwrap_err();
-        i!("Restarting...");
-        break;
-    }
+    let abort = task.abort_handle();
+    let api = tokio::spawn(async move {
+        boot_api(api, abort).await;
+    });
+    // 即使api服务无法启动，也继续运行oneport服务
+    task.await.unwrap_err(); // task正常情况下不会返回，除非发生了panic或者被取消，因此返回值一定是Err
+    api.abort();
 }
 
 /// 启动oneport主服务, 默认监听 0.0.0.0:1111
