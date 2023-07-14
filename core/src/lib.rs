@@ -3,6 +3,7 @@ pub mod client;
 mod cmd;
 pub mod log;
 pub mod server;
+pub mod panic;
 
 #[allow(unused)]
 mod tests {
