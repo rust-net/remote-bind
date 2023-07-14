@@ -1,6 +1,6 @@
 use std::panic::PanicInfo;
 
-use crate::e;
+use crate::{e, time::get_time};
 
 fn get_payload<'a>(panic_info: &'a PanicInfo<'a>) -> Option<&'a str> {
     panic_info
@@ -18,12 +18,13 @@ pub fn custom_panic() {
     std::panic::set_hook(Box::new(|panic_info| {
         if let (Some(payload), Some(location)) = (get_payload(panic_info), panic_info.location()) {
             println!(
-                "{}:{} -> Panic occurred: {payload}",
+                "{} - {}:{} -> Panic occurred: {payload}",
+                get_time(),
                 location.file(),
                 location.line(),
             );
         } else {
-            e!("Panic occurred: {panic_info}");
+            e!("{} - Panic occurred: {panic_info}", get_time());
         }
     }));
 }

@@ -12,20 +12,13 @@ pub enum Level {
 
 #[cfg(not(target_os = "android"))]
 pub mod log {
-    use chrono::{DateTime, Local};
-
-    pub fn time() -> String {
-        let now: DateTime<Local> = Local::now();
-        now.format("%Y-%m-%d %H:%M:%S").to_string()
-    }
-
     #[macro_export]
     macro_rules! log {
         ($type: expr, $($arg: tt)+) => {{
             use $crate::log::Level;
-            use $crate::log::log::time;
+            use $crate::time::get_time;
 
-            let time = time();
+            let time = get_time();
             let level: Level = $type;
             let str = format!($($arg)+);
             match level {

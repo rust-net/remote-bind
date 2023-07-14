@@ -4,6 +4,7 @@ mod cmd;
 pub mod log;
 pub mod server;
 pub mod panic;
+pub mod time;
 
 #[allow(unused)]
 mod tests {
