@@ -39,7 +39,8 @@ async fn reload(config_file: Option<String>) {
     match load_config(&config).await {
         Ok((_listen, api)) => {
             match TcpStream::connect(api).await {
-                Ok(_) => {
+                Ok(mut stream) => {
+                    let _ = stream.write_all(b"GET /oneport/reload HTTP/1.1\r\nHost: localhost\r\n\r\n").await;
                     i!("Restarting...");
                 }
                 _ => ()
