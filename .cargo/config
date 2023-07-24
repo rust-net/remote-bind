@@ -1,2 +1,4 @@
 [build]
+# 编译安卓共享库时需要注释该行。否则报错：
+# error: cannot produce cdylib for `android v0.1.0` as the target `aarch64-linux-android` does not support these crate types
 rustflags = ["-C", "target-feature=+crt-static"]
