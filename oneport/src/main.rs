@@ -1,12 +1,12 @@
 mod config;
 mod api;
 
-use core::*;
+use core::{*, time::get_time};
 use api::*;
 use config::*;
-use std::{net::SocketAddr, time::Duration};
+use std::{net::SocketAddr, time::Duration, io};
 
-use tokio::{net::{TcpListener, TcpStream}, io::AsyncWriteExt, time::sleep};
+use tokio::{net::{TcpListener, TcpStream}, io::AsyncWriteExt, time::sleep, fs};
 
 #[tokio::main]
 async fn main() {
@@ -131,10 +131,26 @@ async fn serv(mut visitor: TcpStream, addr: SocketAddr) {
                 Err(e) => return e!("Request {addr} serv error: {e}"),
             };
             stream.write_all(&msg).await.unwrap();
+            #[cfg(feature = "dump")]
+            let _ = dump_first(&addr.to_string(), &msg).await;
             let a = visitor.split();
             let b = stream.split();
             a2b::a2b(a, b).await;
             i!("Request {addr} finished");
         }
     }
+}
+
+#[allow(dead_code)]
+async fn dump_first(who: &str, data: &[u8]) -> io::Result<()> {
+    let time = get_time();
+    let path = format!("{time} {who} first.txt");
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .open(&path.replace(":", "-"))
+        .await?;
+    let _ = file.write_all(data).await;
+    Ok(())
 }
