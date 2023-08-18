@@ -1,5 +1,6 @@
 pub mod a2b;
 pub mod client;
+pub mod client_p2p;
 mod cmd;
 pub mod log;
 pub mod server;

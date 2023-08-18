@@ -1,4 +1,5 @@
 use core::client::Client;
+use core::client_p2p::ClientP2P;
 use core::log::*;
 
 pub static mut SERVER: Option<String> = None;
@@ -9,9 +10,10 @@ pub static mut LOCAL_SERVICE: Option<String> = None;
 fn print_help() {
     println!(
         r#"Help:
-{} [server:port] [bind_port] [password] [local_service:port]
+{exe} [server:port] [bind_port] [password] [local_service:port]
+{exe} p2p [server:port] [bind_port] [local_listen:port]
 "#,
-        std::env::args().nth(0).unwrap()
+        exe = std::env::args().nth(0).unwrap()
     );
 }
 
@@ -20,25 +22,59 @@ fn main() {
     if args.len() < 5 {
         return print_help();
     }
+    let mut is_p2p = false;
     unsafe {
-        SERVER = Some(args.nth(1).unwrap());
-        PORT = match args.next().unwrap().parse() {
+        SERVER = match args.nth(1) {
+            Some(v) if v == "p2p" => {
+                is_p2p = true;
+                args.next()
+            }
+            v => v,
+        };
+        // Some(args.nth(1).unwrap());
+        let port = args.next().unwrap();
+        PORT = match port.parse() {
             Ok(p) => p,
             Err(_) => {
                 println!(
                     "端口号错误: {}, 请选择一个1~65535之间的端口号\n",
-                    std::env::args().nth(2).unwrap()
+                    port
                 );
                 return print_help();
             }
         };
-        PASSWORD = args.next().map(|s| s.to_string());
+        if !is_p2p {
+            PASSWORD = args.next().map(|s| s.to_string());
+        }
         LOCAL_SERVICE = args.next().map(|s| s.to_string());
+    }
+    if is_p2p {
+        serv_p2p();
+        return;
     }
     loop {
         serv();
         std::thread::sleep(std::time::Duration::from_millis(5000));
     }
+}
+
+fn serv_p2p() {
+    let server = unsafe { SERVER.as_ref().unwrap() };
+    let port = unsafe { PORT };
+    let local_service = unsafe { LOCAL_SERVICE.as_ref().unwrap() };
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let p2p = ClientP2P::new(server.into(), port, local_service.into());
+            match p2p.serv().await {
+                Err(e) => {
+                    e!("启动失败：{e}");
+                },
+                _ => ()
+            };
+        });
 }
 
 fn serv() {

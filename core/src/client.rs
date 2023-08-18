@@ -46,7 +46,7 @@ impl Client {
                 Command::Accept { port, id, addr } => {
                     let session_id = id.clone();
                     i!("Accept -> Response {addr}. (ID: {session_id})");
-                    let mut new_client = match Client::new(self.server.clone(), self.password.clone()).await {
+                    let mut new_client = match Self::new(self.server.clone(), self.password.clone()).await {
                         Ok(v) => v,
                         Err(e) => break e!("新建会话失败：{e}"),
                     };
@@ -65,6 +65,27 @@ impl Client {
                         i!("Accept -> Finished {addr}. (ID: {session_id})");
                     });
                     handle(task).await;
+                }
+                Command::AcceptP2P { addr } => {
+                    i!("绑定者开始响应 {addr}");
+                    let mut new_client = match Self::new(self.server.clone(), self.password.clone()).await {
+                        Ok(v) => v,
+                        Err(e) => break e!("新建会话失败：{e}"),
+                    };
+                    let _ = write_cmd(&mut new_client.stream, Command::AcceptP2P { addr }, &new_client.password).await;
+                    // 请考虑：这些任务应该如何取消？
+                    let task = tokio::spawn(async move {
+                        let mut local = match TcpStream::connect(local_service).await {
+                            Ok(v) => v,
+                            Err(e) => {
+                                return e!("本地代理服务连接失败：{e}");
+                            }
+                        };
+                        let a = local.split();
+                        let b = new_client.stream.split();
+                        a2b(a, b).await;
+                        // i!("Accept -> Finished {addr}. (ID: {session_id})");
+                    });
                 }
                 Command::Error(e) => {
                     e!("会话异常：{}", e);

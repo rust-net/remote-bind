@@ -18,7 +18,12 @@ pub struct Server {
     listener: TcpListener,
 }
 
-static VISITORS: Lazy<Mutex<HashMap<String, TcpStream>>> = Lazy::new(|| {
+type LockMap<K, V> = Lazy<Mutex<HashMap<K, V>>>;
+
+static VISITORS: LockMap<String, TcpStream> = Lazy::new(|| {
+    Mutex::new(HashMap::new())
+});
+static SERVICES: LockMap<u16, Arc<Mutex<TcpStream>>> = Lazy::new(|| {
     Mutex::new(HashMap::new())
 });
 
@@ -84,6 +89,7 @@ impl Server {
                                         Command::success(),
                                         "",
                                     ).await;
+                                    SERVICES.lock().await.insert(port, agent.clone());
                                     // KEEPALIVE
                                     loop {
                                         sleep(Duration::from_millis(5000)).await;
@@ -109,6 +115,7 @@ impl Server {
                                             }
                                         }
                                     }
+                                    SERVICES.lock().await.remove(&port);
                                     break; // End the Binding
                                 }
                                 Err(e) => {
@@ -136,6 +143,34 @@ impl Server {
                             a2b(visitor, agent).await;
                             i!("AGENT({agent_addr}) -> Finished {}. (ID: {id})", visitor_addr);
                             break;
+                        }
+                        Command::P2pRequest { port } => {
+                            i!("p2p 请求端口 {port}, from {}", agent_addr.ip());
+                            match SERVICES.lock().await.get(&port) {
+                                Some(bind_agent) => {
+                                    let mut bind_agent = bind_agent.lock().await;
+                                    let bind_agent = &mut *bind_agent;
+                                    match write_cmd(bind_agent, Command::AcceptP2P { addr: agent_addr.to_string() }, "").await {
+                                        Ok(_) => {
+                                            //
+                                        }
+                                        Err(_) => {
+                                        }
+                                    }
+                                },
+                                None => {
+                                    let _ = write_cmd(
+                                        agent.lock().await.borrow_mut(),
+                                        Command::failure("端口未绑定服务".to_string()),
+                                        "",
+                                    ).await;
+                                    sleep(Duration::from_millis(2000)).await; // 为客户端执行read_cmd()留出时间
+                                },
+                            }
+                        }
+                        Command::AcceptP2P { addr } => {
+                            i!("p2p 响应 {addr}");
+                            // 取出对应的p2p请求端
                         }
                         Command::Error(ref e) if e.kind() == ErrorKind::PermissionDenied => {
                             let _ = write_cmd(
