@@ -30,7 +30,7 @@ impl ClientP2P {
                     i!("测试成功");
                 }
                 i!("服务已启动: {}", self.local_service);
-                loop {
+                // loop {
                     if let Ok((conn, _addr)) = listener.accept().await {
                         i!("正在连接");
                         let mut server: TcpStream = TcpStream::connect(&self.server).await?;
@@ -39,11 +39,14 @@ impl ClientP2P {
                                 Command::AcceptP2P { addr } => {
                                     i!("p2p -> {addr}");
                                 },
+                                Command::Failure { reason } => {
+                                    i!("连接失败：{reason}");
+                                }
                                 _ => ()
                             }
                         }
                     }
-                }
+                // }
                 Ok(())
             },
             Err(e) => Err(e),

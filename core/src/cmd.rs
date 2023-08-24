@@ -72,7 +72,7 @@ pub async fn read_cmd(tcp: &mut TcpStream, password: &str) -> Command {
         Ok(_) => return Command::invalid_data(),
         Err(e) => return Command::Error(e),
     };
-    d!("Magic correct");
+    // d!("Magic correct");
     // length
     let (len_password, len_cmd) = match get_length(tcp).await {
         Ok(v) => v,

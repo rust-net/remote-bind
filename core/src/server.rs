@@ -26,6 +26,9 @@ static VISITORS: LockMap<String, TcpStream> = Lazy::new(|| {
 static SERVICES: LockMap<u16, Arc<Mutex<TcpStream>>> = Lazy::new(|| {
     Mutex::new(HashMap::new())
 });
+static P2P_VISITORS: LockMap<String, Arc<Mutex<TcpStream>>> = Lazy::new(|| {
+    Mutex::new(HashMap::new())
+});
 
 async fn bind(port: u16, agent: Arc<Mutex<TcpStream>>) -> std::io::Result<JoinHandle<()>> {
     let listener = TcpListener::bind(&format!("0.0.0.0:{}", port)).await?;
@@ -79,7 +82,7 @@ impl Server {
                 loop {
                     i!("AGENT({agent_addr}) -> Reading command...");
                     let cmd: Command = read_cmd(&mut *agent.lock().await, &password).await;
-                    wtf!(&cmd);
+                    // wtf!(&cmd);
                     match cmd {
                         Command::Bind { port } => {
                             match bind(port, agent.clone()).await {
@@ -106,7 +109,7 @@ impl Server {
                                         }
                                         match read_cmd(agent, "").await {
                                             Command::Nothing => {
-                                                i!("AGENT({agent_addr}) -> Living"); 
+                                                // i!("AGENT({agent_addr}) -> Living"); 
                                             }
                                             _ => {
                                                 i!("PORT({port}) -> Agent {agent_addr} no response, release the port!");
@@ -145,9 +148,11 @@ impl Server {
                             break;
                         }
                         Command::P2pRequest { port } => {
-                            i!("p2p 请求端口 {port}, from {}", agent_addr.ip());
+                            i!("p2p 请求端口 {port}, from {}", agent_addr);
                             match SERVICES.lock().await.get(&port) {
                                 Some(bind_agent) => {
+                                    P2P_VISITORS.lock().await.insert(agent_addr.to_string(), agent.clone());
+                                    // TODO: delete the p2p visitor
                                     let mut bind_agent = bind_agent.lock().await;
                                     let bind_agent = &mut *bind_agent;
                                     match write_cmd(bind_agent, Command::AcceptP2P { addr: agent_addr.to_string() }, "").await {
@@ -155,6 +160,12 @@ impl Server {
                                             //
                                         }
                                         Err(_) => {
+                                            let _ = write_cmd(
+                                                agent.lock().await.borrow_mut(),
+                                                Command::failure("代理响应超时".to_string()),
+                                                "",
+                                            ).await;
+                                            sleep(Duration::from_millis(2000)).await; // 为客户端执行read_cmd()留出时间
                                         }
                                     }
                                 },
@@ -167,10 +178,25 @@ impl Server {
                                     sleep(Duration::from_millis(2000)).await; // 为客户端执行read_cmd()留出时间
                                 },
                             }
+                            break;
                         }
                         Command::AcceptP2P { addr } => {
                             i!("p2p 响应 {addr}");
                             // 取出对应的p2p请求端
+                            match P2P_VISITORS.lock().await.remove(&addr) {
+                                Some(visitor) => {
+                                    let mut visitor = visitor.lock().await;
+                                    let visitor_addr = visitor.peer_addr().unwrap();
+                                    assert_eq!(addr, visitor_addr.to_string());
+                                    let _ = write_cmd(
+                                        &mut visitor,
+                                        Command::AcceptP2P { addr: agent_addr.to_string() },
+                                        "",
+                                    ).await;
+                                },
+                                None => break,
+                            }
+                            std::future::pending::<()>().await;
                         }
                         Command::Error(ref e) if e.kind() == ErrorKind::PermissionDenied => {
                             let _ = write_cmd(
