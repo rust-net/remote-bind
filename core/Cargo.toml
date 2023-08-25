@@ -13,3 +13,6 @@ chrono = "0.4.26"
 once_cell = "1.18.0"
 tokio = { version = "1.28.1", features = ["macros", "rt-multi-thread", "time", "full"] }
 uuid = { version = "1.3.4", features = ["v4"] }
+quinn = "0.10.2"
+rustls = { version = "0.21.6", default-features = false, features = ["quic", "dangerous_configuration"] }
+rcgen = "0.11.1"

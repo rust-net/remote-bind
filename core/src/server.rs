@@ -9,11 +9,12 @@ use tokio::{
 use crate::{
     cmd::{read_cmd, write_cmd, Command},
     log::*,
-    a2b::*,
+    a2b::*, p2p_utils::make_server_endpoint,
 };
 use uuid::Uuid;
 
 pub struct Server {
+    address: String,
     password: String,
     listener: TcpListener,
 }
@@ -62,15 +63,45 @@ async fn bind(port: u16, agent: Arc<Mutex<TcpStream>>) -> std::io::Result<JoinHa
     Ok(task)
 }
 
+
+async fn stun(address: &str) {
+    let server_addr = address.parse().unwrap();
+    let (endpoint, _server_cert) = make_server_endpoint(server_addr).expect("Can't start a STUN service");
+    // wtf!(_server_cert); // 服务器自签证书，需要发送给客户端，除非客户端使用不安全配置，否则无法连接服务器
+    loop {
+        let Some(incoming_conn) = endpoint.accept().await else {
+            continue;
+        };
+        let _task = tokio::spawn(async move {
+            let conn = incoming_conn.await.unwrap();
+            i!(
+                "[STUN] connection accepted: addr={}",
+                conn.remote_address()
+            );
+            // let (mut s, _r) = conn.accept_bi().await.unwrap();
+            let mut s = conn.open_uni().await.unwrap();
+            s.write_all(conn.remote_address().to_string().as_bytes()).await.unwrap();
+            // Dropping all handles associated with a connection implicitly closes it
+            tokio::time::sleep(std::time::Duration::from_millis(5000)).await; // 需要一点延迟，否则客户端读取时 EOF
+        });
+    }
+}
+
 impl Server {
     pub async fn new(address: String, password: String) -> std::io::Result<Self> {
         let listener = TcpListener::bind(&address).await?;
         Ok(Self {
+            address,
             password,
             listener,
         })
     }
+    pub fn boot_stun(self: &Self) {
+        let address = self.address.clone();
+        tokio::spawn(async move { stun(&address).await });
+    }
     pub async fn serv(self: &Self) {
+        self.boot_stun();
         loop {
             let (agent, agent_addr) = match self.listener.accept().await {
                 Ok((tcp, addr)) => (Arc::new(Mutex::new(tcp)), addr),
@@ -147,15 +178,18 @@ impl Server {
                             i!("AGENT({agent_addr}) -> Finished {}. (ID: {id})", visitor_addr);
                             break;
                         }
-                        Command::P2pRequest { port } => {
-                            i!("p2p 请求端口 {port}, from {}", agent_addr);
-                            match SERVICES.lock().await.get(&port) {
+                        Command::P2pRequest { port, udp_addr } => {
+                            i!("AGENT({agent_addr}) -> P2P request port {port}");
+                            let lock = SERVICES.lock().await;
+                            match lock.get(&port) {
                                 Some(bind_agent) => {
+                                    let bind_agent = bind_agent.clone();
+                                    drop(lock);
                                     P2P_VISITORS.lock().await.insert(agent_addr.to_string(), agent.clone());
                                     // TODO: delete the p2p visitor
                                     let mut bind_agent = bind_agent.lock().await;
                                     let bind_agent = &mut *bind_agent;
-                                    match write_cmd(bind_agent, Command::AcceptP2P { addr: agent_addr.to_string() }, "").await {
+                                    match write_cmd(bind_agent, Command::AcceptP2P { addr: agent_addr.to_string(), udp_addr }, "").await {
                                         Ok(_) => {
                                             //
                                         }
@@ -170,6 +204,7 @@ impl Server {
                                     }
                                 },
                                 None => {
+                                    drop(lock);
                                     let _ = write_cmd(
                                         agent.lock().await.borrow_mut(),
                                         Command::failure("端口未绑定服务".to_string()),
@@ -180,8 +215,8 @@ impl Server {
                             }
                             break;
                         }
-                        Command::AcceptP2P { addr } => {
-                            i!("p2p 响应 {addr}");
+                        Command::AcceptP2P { addr, udp_addr } => {
+                            i!("AGENT({agent_addr}) -> P2P Response {addr} via {udp_addr}");
                             // 取出对应的p2p请求端
                             match P2P_VISITORS.lock().await.remove(&addr) {
                                 Some(visitor) => {
@@ -190,13 +225,15 @@ impl Server {
                                     assert_eq!(addr, visitor_addr.to_string());
                                     let _ = write_cmd(
                                         &mut visitor,
-                                        Command::AcceptP2P { addr: agent_addr.to_string() },
+                                        Command::AcceptP2P { addr: agent_addr.to_string(), udp_addr },
                                         "",
                                     ).await;
                                 },
                                 None => break,
                             }
-                            std::future::pending::<()>().await;
+                            // std::future::pending::<()>().await;
+                            sleep(Duration::from_millis(2000)).await; // 为客户端执行read_cmd()留出时间
+                            break;
                         }
                         Command::Error(ref e) if e.kind() == ErrorKind::PermissionDenied => {
                             let _ = write_cmd(

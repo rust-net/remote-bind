@@ -1,0 +1,13 @@
+if [[ $(uname -o) == "Cygwin" ]]; then
+    echo "Running in Cygwin"
+    ANDROID_NDK_HOME="D:\AS_SDK\ndk\25.1.8937393"
+    APP="E:\Github\tcp2ws-apk\app\src\main"
+    OUTDIR="$APP\jniLibs"
+    # IS_RELEASE="--release"
+    cargo ndk -t arm64-v8a -o $OUTDIR build $IS_RELEASE
+    # 生成 C++ 绑定
+    # ./cbind
+    cbindgen --output "$APP/cpp/rust.h"
+else
+    echo "Not running in Cygwin"
+fi

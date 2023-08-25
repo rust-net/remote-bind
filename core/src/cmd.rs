@@ -22,9 +22,11 @@ pub enum Command {
     },
     P2pRequest {
         port: u16,
+        udp_addr: String, // 访问者Udp公网地址
     },
     AcceptP2P {
-        addr: String,
+        addr: String, // 访问者Tcp公网地址
+        udp_addr: String, // Udp公网地址
     },
     Nothing,
     Success,
@@ -99,11 +101,10 @@ pub async fn read_cmd(tcp: &mut TcpStream, password: &str) -> Command {
     // match cmd
     match cmds.next() {
         Some("p2p_request") => {
-            d!("p2p receid");
             let mut r = Command::invalid_data();
-            if let Some(port) = cmds.next() {
+            if let (Some(port), Some(addr)) = (cmds.next(), cmds.next()) {
                 if let Ok(port) = port.parse::<u16>() {
-                    r = Command::P2pRequest { port: port }
+                    r = Command::P2pRequest { port: port, udp_addr: addr.to_string() }
                 }
             }
             r
@@ -129,7 +130,7 @@ pub async fn read_cmd(tcp: &mut TcpStream, password: &str) -> Command {
             r
         }
         Some("accept_p2p") => {
-            Command::AcceptP2P { addr: cmds.next().unwrap_or_default().to_string() }
+            Command::AcceptP2P { addr: cmds.next().unwrap_or_default().to_string(), udp_addr: cmds.next().unwrap_or_default().to_string() }
         }
         Some("success") => Command::Success,
         Some("failure") => Command::Failure {
@@ -149,11 +150,11 @@ pub async fn write_cmd(tcp: &mut TcpStream, cmd: Command, password: &str) -> std
         Command::Accept { port, id, addr} => {
             format!("accept {port} {id} {addr}")
         }
-        Command::P2pRequest { port } => {
-            format!("p2p_request {port}")
+        Command::P2pRequest { port, udp_addr } => {
+            format!("p2p_request {port} {udp_addr}")
         }
-        Command::AcceptP2P { addr } => {
-            format!("accept_p2p {addr}")
+        Command::AcceptP2P { addr, udp_addr } => {
+            format!("accept_p2p {addr} {udp_addr}")
         }
         Command::Success => {
             format!("success")
