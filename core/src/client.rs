@@ -4,7 +4,7 @@ use tokio::{net::TcpStream, task::JoinHandle};
 
 use crate::{
     cmd::{read_cmd, write_cmd, Command},
-    log::*, a2b::a2b, p2p::{get_client_endpoint, get_server_endpoint},
+    log::*, a2b::a2b, p2p::{get_client_endpoint, get_server_endpoint, tcp2udp},
 };
 
 pub struct Client {
@@ -67,7 +67,7 @@ impl Client {
                     handle(task).await;
                 }
                 Command::AcceptP2P { addr, udp_addr } => {
-                    i!("绑定者开始响应 {addr} via {udp_addr}");
+                    i!("AcceptP2P -> {udp_addr}");
                     let mut new_client = match Self::new(self.server.clone(), self.password.clone()).await {
                         Ok(v) => v,
                         Err(e) => break e!("新建会话失败：{e}"),
@@ -83,42 +83,34 @@ impl Client {
                         let le = udp_read.read(&mut buf).await.unwrap().unwrap();
                         let my_udp_addr = String::from_utf8_lossy(&buf[..le]).to_string();
 
-                        let _ = write_cmd(&mut new_client.stream, Command::AcceptP2P { addr, udp_addr: my_udp_addr }, &new_client.password).await;
-                        drop(udp_conn);
-                        udp.wait_idle().await;
-                        drop(udp_read);
-                        udp.wait_idle().await;
+                        let _ = write_cmd(&mut new_client.stream, Command::AcceptP2P { addr, udp_addr: my_udp_addr.clone() }, &new_client.password).await;
                         let addr = udp.local_addr().unwrap();
-                        i!("重用地址{addr}");
+                        udp.rebind(std::net::UdpSocket::bind("0.0.0.0:0").unwrap()).unwrap(); // drop old client port
+                        udp.close(0u32.into(), b"done");
+                        udp.wait_idle().await;
                         drop(udp);
+
                         let udp = get_server_endpoint(Some(&addr.to_string())).unwrap();
-                        i!("等待打洞");
+                        i!("UDP({my_udp_addr}) -> await connect");
                         let incoming_conn = udp.accept().await.unwrap();
-                        i!("连接成功");
+                        let visitor = incoming_conn.remote_address().to_string();
+                        i!("UDP({my_udp_addr}) -> {visitor} incoming");
+                        // assert_eq!(visitor, udp_addr);
                         let _task = tokio::spawn(async move {
                             let conn = incoming_conn.await.unwrap();
-                            i!(
-                                "[server] connection accepted: addr={}",
-                                conn.remote_address()
-                            );
-                            // let (mut s, _r) = conn.accept_bi().await.unwrap();
-                            let mut s = conn.open_uni().await.unwrap();
+                            let (mut s, r) = conn.open_bi().await.unwrap();
                             s.write_all(b"Hello").await.unwrap();
-                            // Dropping all handles associated with a connection implicitly closes it
-                            tokio::time::sleep(std::time::Duration::from_millis(5000)).await; // 需要一点延迟，否则客户端读取时 EOF
+                            let mut local = match TcpStream::connect(local_service).await {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    return e!("本地代理服务连接失败：{e}");
+                                }
+                            };
+                            let a = local.split();
+                            let b = (s, r);
+                            tcp2udp(a, b).await;
+                            i!("AcceptP2P -> Finished {visitor}");
                         });
-                
-
-                        let mut local = match TcpStream::connect(local_service).await {
-                            Ok(v) => v,
-                            Err(e) => {
-                                return e!("本地代理服务连接失败：{e}");
-                            }
-                        };
-                        let a = local.split();
-                        let b = new_client.stream.split();
-                        a2b(a, b).await;
-                        // i!("Accept -> Finished {addr}. (ID: {session_id})");
                     });
                     handle(task).await;
                 }
