@@ -1,10 +1,14 @@
 pub mod a2b;
+pub mod p2p;
 pub mod client;
+pub mod client_p2p;
 mod cmd;
 pub mod log;
 pub mod server;
 pub mod panic;
 pub mod time;
+pub mod p2p_utils;
+pub mod unsafe_quic_client;
 
 #[allow(unused)]
 mod tests {

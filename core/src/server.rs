@@ -9,16 +9,25 @@ use tokio::{
 use crate::{
     cmd::{read_cmd, write_cmd, Command},
     log::*,
-    a2b::*,
+    a2b::*, p2p_utils::make_server_endpoint,
 };
 use uuid::Uuid;
 
 pub struct Server {
+    address: String,
     password: String,
     listener: TcpListener,
 }
 
-static VISITORS: Lazy<Mutex<HashMap<String, TcpStream>>> = Lazy::new(|| {
+type LockMap<K, V> = Lazy<Mutex<HashMap<K, V>>>;
+
+static VISITORS: LockMap<String, TcpStream> = Lazy::new(|| {
+    Mutex::new(HashMap::new())
+});
+static SERVICES: LockMap<u16, Arc<Mutex<TcpStream>>> = Lazy::new(|| {
+    Mutex::new(HashMap::new())
+});
+static P2P_VISITORS: LockMap<String, Arc<Mutex<TcpStream>>> = Lazy::new(|| {
     Mutex::new(HashMap::new())
 });
 
@@ -54,15 +63,45 @@ async fn bind(port: u16, agent: Arc<Mutex<TcpStream>>) -> std::io::Result<JoinHa
     Ok(task)
 }
 
+
+async fn stun(address: &str) {
+    let server_addr = address.parse().unwrap();
+    let (endpoint, _server_cert) = make_server_endpoint(server_addr).expect("Can't start a STUN service");
+    // wtf!(_server_cert); // 服务器自签证书，需要发送给客户端，除非客户端使用不安全配置，否则无法连接服务器
+    loop {
+        let Some(incoming_conn) = endpoint.accept().await else {
+            continue;
+        };
+        let _task = tokio::spawn(async move {
+            let conn = incoming_conn.await.unwrap();
+            i!(
+                "[STUN] connection accepted: addr={}",
+                conn.remote_address()
+            );
+            // let (mut s, _r) = conn.accept_bi().await.unwrap();
+            let mut s = conn.open_uni().await.unwrap();
+            s.write_all(conn.remote_address().to_string().as_bytes()).await.unwrap();
+            // Dropping all handles associated with a connection implicitly closes it
+            tokio::time::sleep(std::time::Duration::from_millis(5000)).await; // 需要一点延迟，否则客户端读取时 EOF
+        });
+    }
+}
+
 impl Server {
     pub async fn new(address: String, password: String) -> std::io::Result<Self> {
         let listener = TcpListener::bind(&address).await?;
         Ok(Self {
+            address,
             password,
             listener,
         })
     }
+    pub fn boot_stun(self: &Self) {
+        let address = self.address.clone();
+        tokio::spawn(async move { stun(&address).await });
+    }
     pub async fn serv(self: &Self) {
+        self.boot_stun();
         loop {
             let (agent, agent_addr) = match self.listener.accept().await {
                 Ok((tcp, addr)) => (Arc::new(Mutex::new(tcp)), addr),
@@ -74,7 +113,7 @@ impl Server {
                 loop {
                     i!("AGENT({agent_addr}) -> Reading command...");
                     let cmd: Command = read_cmd(&mut *agent.lock().await, &password).await;
-                    wtf!(&cmd);
+                    // wtf!(&cmd);
                     match cmd {
                         Command::Bind { port } => {
                             match bind(port, agent.clone()).await {
@@ -84,6 +123,7 @@ impl Server {
                                         Command::success(),
                                         "",
                                     ).await;
+                                    SERVICES.lock().await.insert(port, agent.clone());
                                     // KEEPALIVE
                                     loop {
                                         sleep(Duration::from_millis(5000)).await;
@@ -100,7 +140,7 @@ impl Server {
                                         }
                                         match read_cmd(agent, "").await {
                                             Command::Nothing => {
-                                                i!("AGENT({agent_addr}) -> Living"); 
+                                                // i!("AGENT({agent_addr}) -> Living"); 
                                             }
                                             _ => {
                                                 i!("PORT({port}) -> Agent {agent_addr} no response, release the port!");
@@ -109,6 +149,7 @@ impl Server {
                                             }
                                         }
                                     }
+                                    SERVICES.lock().await.remove(&port);
                                     break; // End the Binding
                                 }
                                 Err(e) => {
@@ -135,6 +176,63 @@ impl Server {
                             let visitor = visitor.split();
                             a2b(visitor, agent).await;
                             i!("AGENT({agent_addr}) -> Finished {}. (ID: {id})", visitor_addr);
+                            break;
+                        }
+                        Command::P2pRequest { port, udp_addr } => {
+                            i!("AGENT({agent_addr}) -> P2P request port {port}");
+                            let lock = SERVICES.lock().await;
+                            match lock.get(&port) {
+                                Some(bind_agent) => {
+                                    let bind_agent = bind_agent.clone();
+                                    drop(lock);
+                                    P2P_VISITORS.lock().await.insert(agent_addr.to_string(), agent.clone());
+                                    // TODO: delete the p2p visitor
+                                    let mut bind_agent = bind_agent.lock().await;
+                                    let bind_agent = &mut *bind_agent;
+                                    match write_cmd(bind_agent, Command::AcceptP2P { addr: agent_addr.to_string(), udp_addr }, "").await {
+                                        Ok(_) => {
+                                            //
+                                        }
+                                        Err(_) => {
+                                            let _ = write_cmd(
+                                                agent.lock().await.borrow_mut(),
+                                                Command::failure("代理响应超时".to_string()),
+                                                "",
+                                            ).await;
+                                            sleep(Duration::from_millis(2000)).await; // 为客户端执行read_cmd()留出时间
+                                        }
+                                    }
+                                },
+                                None => {
+                                    drop(lock);
+                                    let _ = write_cmd(
+                                        agent.lock().await.borrow_mut(),
+                                        Command::failure("端口未绑定服务".to_string()),
+                                        "",
+                                    ).await;
+                                    sleep(Duration::from_millis(2000)).await; // 为客户端执行read_cmd()留出时间
+                                },
+                            }
+                            break;
+                        }
+                        Command::AcceptP2P { addr, udp_addr } => {
+                            i!("AGENT({agent_addr}) -> P2P Response {addr} via {udp_addr}");
+                            // 取出对应的p2p请求端
+                            match P2P_VISITORS.lock().await.remove(&addr) {
+                                Some(visitor) => {
+                                    let mut visitor = visitor.lock().await;
+                                    let visitor_addr = visitor.peer_addr().unwrap();
+                                    assert_eq!(addr, visitor_addr.to_string());
+                                    let _ = write_cmd(
+                                        &mut visitor,
+                                        Command::AcceptP2P { addr: agent_addr.to_string(), udp_addr },
+                                        "",
+                                    ).await;
+                                },
+                                None => break,
+                            }
+                            // std::future::pending::<()>().await;
+                            sleep(Duration::from_millis(2000)).await; // 为客户端执行read_cmd()留出时间
                             break;
                         }
                         Command::Error(ref e) if e.kind() == ErrorKind::PermissionDenied => {

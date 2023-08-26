@@ -20,6 +20,14 @@ pub enum Command {
         /// 访问者地址
         addr: String,
     },
+    P2pRequest {
+        port: u16,
+        udp_addr: String, // 访问者Udp公网地址
+    },
+    AcceptP2P {
+        addr: String, // 访问者Tcp公网地址
+        udp_addr: String, // Udp公网地址
+    },
     Nothing,
     Success,
     Failure {
@@ -66,18 +74,19 @@ pub async fn read_cmd(tcp: &mut TcpStream, password: &str) -> Command {
         Ok(_) => return Command::invalid_data(),
         Err(e) => return Command::Error(e),
     };
-    d!("Magic correct");
+    // d!("Magic correct");
     // length
     let (len_password, len_cmd) = match get_length(tcp).await {
         Ok(v) => v,
         Err(e) => return e,
     };
     // password check
+    let mut incorrect = false;
     if password.len() != 0 {
         let mut buf = vec![0; len_password.into()];
         match tcp.read_exact(&mut buf).await {
-            Ok(v) if buf == password.as_bytes() => v,
-            Ok(_) => return Command::permission_denied(),
+            Ok(_) if buf == password.as_bytes() => (),
+            Ok(_) => incorrect = true,
             Err(e) => return Command::Error(e),
         };
     }
@@ -91,6 +100,17 @@ pub async fn read_cmd(tcp: &mut TcpStream, password: &str) -> Command {
     let mut cmds = cmd.split_whitespace();
     // match cmd
     match cmds.next() {
+        Some("p2p_request") => {
+            let mut r = Command::invalid_data();
+            if let (Some(port), Some(addr)) = (cmds.next(), cmds.next()) {
+                if let Ok(port) = port.parse::<u16>() {
+                    r = Command::P2pRequest { port: port, udp_addr: addr.to_string() }
+                }
+            }
+            r
+        }
+        // 允许上面的指令不检测密码
+        _ if incorrect => return Command::permission_denied(),
         Some("bind") => {
             let mut r = Command::invalid_data();
             if let Some(port) = cmds.next() {
@@ -109,6 +129,9 @@ pub async fn read_cmd(tcp: &mut TcpStream, password: &str) -> Command {
             }
             r
         }
+        Some("accept_p2p") => {
+            Command::AcceptP2P { addr: cmds.next().unwrap_or_default().to_string(), udp_addr: cmds.next().unwrap_or_default().to_string() }
+        }
         Some("success") => Command::Success,
         Some("failure") => Command::Failure {
             reason: cmds.into_iter().collect::<Vec<&str>>().join(" "),
@@ -126,6 +149,12 @@ pub async fn write_cmd(tcp: &mut TcpStream, cmd: Command, password: &str) -> std
         }
         Command::Accept { port, id, addr} => {
             format!("accept {port} {id} {addr}")
+        }
+        Command::P2pRequest { port, udp_addr } => {
+            format!("p2p_request {port} {udp_addr}")
+        }
+        Command::AcceptP2P { addr, udp_addr } => {
+            format!("accept_p2p {addr} {udp_addr}")
         }
         Command::Success => {
             format!("success")
