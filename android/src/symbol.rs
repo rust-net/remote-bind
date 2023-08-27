@@ -1,4 +1,6 @@
 use core::log::*;
+use core::p2p::get_client_endpoint;
+use core::p2p::question_stun;
 use std::ffi::CStr;
 use std::ffi::CString;
 use std::ffi::c_char;
@@ -31,6 +33,27 @@ pub extern "C" fn stop(handler: *const c_char) {
 }
 
 #[no_mangle]
+pub extern "C" fn test22() {
+    i!("卧槽尼玛");
+}
+
+#[no_mangle]
 pub extern "C" fn test() {
-    i!("Hello, Test from librust.so!");
+    i!("Hello, Test from librust.so! 888");
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            i!("go go go 888");
+            wtf!("go go go");
+            let udp = get_client_endpoint(None).unwrap();
+            let ip = question_stun(&udp, "43.132.196.171:1234").await;
+            wtf!(ip);
+            let ip = question_stun(&udp, "43.132.196.171:9999").await;
+            wtf!(ip);
+            let ip = question_stun(&udp, "43.132.196.171:1234").await;
+            wtf!(ip);
+        });
+        i!("fuck")
 }

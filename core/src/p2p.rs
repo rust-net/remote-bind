@@ -28,3 +28,28 @@ pub async fn tcp2udp(a: (ReadHalf<'_>, WriteHalf<'_>), b: (SendStream, RecvStrea
         _ = b => {}
     }
 }
+
+pub async fn question_stun(udp: &Endpoint, server_addr: &str) -> String {
+    let udp_conn = udp.connect(server_addr.parse().unwrap(), "localhost").unwrap()
+        .await.expect("无法连接UDP服务器");
+    let mut udp_read = udp_conn.accept_uni().await.expect("无法读取UDP数据");
+    let mut buf = vec![0; 64];
+    let le = udp_read.read(&mut buf).await.unwrap().unwrap();
+    let my_udp_addr = String::from_utf8_lossy(&buf[..le]).to_string();
+    my_udp_addr
+}
+
+pub async fn bridge(udp: &Endpoint, server_addr: &str) -> String {
+    let udp_conn = udp.connect(udp_addr.parse().unwrap(), "localhost").unwrap()
+        .await.expect("无法连接UDP服务器");
+    wtf!(udp.local_addr().unwrap(), udp_conn.remote_address());
+    let (s, mut r) = udp_conn.accept_bi().await.expect("无法读取UDP数据");
+    let mut buf = vec![0; 64];
+    let le = r.read(&mut buf).await.unwrap().unwrap();
+    let _hello = String::from_utf8_lossy(&buf[..le]).to_string();
+    // assert_eq!(_hello, "Hello");
+    let a = conn.split();
+    let b = (s, r);
+    tcp2udp(a, b).await;
+    todo!("?")
+}
