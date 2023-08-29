@@ -67,7 +67,7 @@ fn serv(host: &str, port: u16) {
 }
 
 async fn boot(host: &str, port: u16, passwd: String) {
-    let s = match Server::new(format!("{host}:{port}"), passwd).await {
+    let s = match Server::new(host.into(), port, passwd).await {
         Ok(v) => v,
         Err(e) => {
             return e!("Server start failed: {e}");

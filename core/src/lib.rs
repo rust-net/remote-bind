@@ -18,7 +18,7 @@ mod tests {
     async fn test_server() {
         use server::Server;
 
-        let s = match Server::new("0.0.0.0:1234".to_string(), "test".to_string()).await {
+        let s = match Server::new("0.0.0.0".into(), 1234, "test".to_string()).await {
             Ok(v) => v,
             Err(e) => {
                 return log::wtf!(e);

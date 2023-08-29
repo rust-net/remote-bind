@@ -4,7 +4,7 @@ use tokio::{net::TcpStream, task::JoinHandle};
 
 use crate::{
     cmd::{read_cmd, write_cmd, Command},
-    log::*, a2b::a2b, p2p::{get_client_endpoint, get_server_endpoint, tcp2udp},
+    log::*, a2b::a2b, p2p::{get_client_endpoint, question_stun, bridge},
 };
 
 pub struct Client {
@@ -66,51 +66,30 @@ impl Client {
                     });
                     handle(task).await;
                 }
-                Command::AcceptP2P { addr, udp_addr } => {
+                Command::AcceptP2P { addr, nat_type: peer_nat_type, udp_addr: peer_udp_addr } => {
                     i!("AcceptP2P -> {addr}");
-                    let mut new_client = match Self::new(self.server.clone(), self.password.clone()).await {
-                        Ok(v) => v,
-                        Err(e) => break e!("新建会话失败：{e}"),
-                    };
                     // 请考虑：这些任务应该如何取消？
                     let server = self.server.clone();
+                    let password = self.password.clone();
                     let task = tokio::spawn(async move {
-                        let mut local = match TcpStream::connect(local_service).await {
+                        let Ok(mut new_client) = Self::new(server.clone(), password).await
+                            else {
+                                return;
+                            };
+                        let udp = get_client_endpoint(None).unwrap();
+                        let (my_nat_type, my_udp_addr) = question_stun(&udp, &server).await;
+
+                        let local = match TcpStream::connect(local_service).await {
                             Ok(v) => v,
                             Err(e) => {
                                 return e!("本地代理服务连接失败：{e}");
                             }
                         };
 
-                        let udp = get_client_endpoint(None).unwrap();
-                        let udp_conn = udp.connect(server.parse().unwrap(), "localhost").unwrap()
-                            .await.expect("无法连接UDP服务器");
-                        let mut udp_read = udp_conn.accept_uni().await.expect("无法读取UDP数据");
-                        let mut buf = vec![0; 64];
-                        let le = udp_read.read(&mut buf).await.unwrap().unwrap();
-                        let my_udp_addr = String::from_utf8_lossy(&buf[..le]).to_string();
-
-                        i!("AcceptP2P -> {my_udp_addr} <--> {udp_addr}");
-                        let _ = write_cmd(&mut new_client.stream, Command::AcceptP2P { addr, udp_addr: my_udp_addr.clone() }, &new_client.password).await;
-                        let hole_addr = udp.local_addr().unwrap();
-                        udp.rebind(std::net::UdpSocket::bind("0.0.0.0:0").unwrap()).unwrap(); // drop old client port
-                        udp.close(0u32.into(), b"done");
-                        udp.wait_idle().await;
-                        drop(udp);
-
-                        let udp = get_server_endpoint(Some(&hole_addr.to_string())).unwrap();
-                        i!("UDP({my_udp_addr}) -> await connect");
-                        let incoming_conn = udp.accept().await.unwrap();
-                        let visitor = incoming_conn.remote_address().to_string();
-                        i!("UDP({my_udp_addr}) -> {visitor} incoming");
-                        // assert_eq!(visitor, udp_addr);
-                        let conn = incoming_conn.await.unwrap();
-                        let (mut s, r) = conn.open_bi().await.unwrap();
-                        s.write_all(b"Hello").await.unwrap();
-                        let a = local.split();
-                        let b = (s, r);
-                        tcp2udp(a, b).await;
-                        i!("AcceptP2P -> Finished {visitor}");
+                        let _ = write_cmd(&mut new_client.stream, Command::AcceptP2P { addr, nat_type: my_nat_type, udp_addr: my_udp_addr.clone() }, &new_client.password).await;
+                        i!("AcceptP2P -> {my_udp_addr} <--> {peer_udp_addr}");
+                        bridge(udp, my_nat_type, &my_udp_addr, peer_nat_type, &peer_udp_addr, local, false).await;
+                        i!("AcceptP2P -> Finished {my_udp_addr} <--> {peer_udp_addr}");
                     });
                     handle(task).await;
                 }
