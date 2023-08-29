@@ -114,7 +114,7 @@ pub async fn bridge(udp: Endpoint, my_nat_type: NatType, my_udp_addr: &str, peer
         udp.wait_idle().await;
         let udp = get_server_endpoint(Some(&hole_addr.to_string())).unwrap();
         i!("UDP({my_udp_addr}) -> await connect");
-        let incoming_conn = udp.accept().await.unwrap();
+        let incoming_conn = udp.accept().await.unwrap(); // 非开放型NAT可能堵塞
         let visitor = incoming_conn.remote_address().to_string();
         i!("UDP({my_udp_addr}) -> {visitor} incoming");
         // assert_eq!(visitor, udp_addr);
@@ -129,9 +129,10 @@ pub async fn bridge(udp: Endpoint, my_nat_type: NatType, my_udp_addr: &str, peer
         let udp_conn = udp.connect(peer_udp_addr.parse().unwrap(), "localhost").unwrap()
             .await.expect("无法连接UDP服务器");
         let (s, mut r) = udp_conn.accept_bi().await.expect("无法读取UDP数据");
-        let mut buf = vec![0; 64];
-        let le = r.read(&mut buf).await.unwrap().unwrap();
-        let _hello = String::from_utf8_lossy(&buf[..le]).to_string();
+        let mut buf = vec![0; 5];
+        r.read_exact(&mut buf).await.unwrap();
+        let _hello = String::from_utf8_lossy(&buf).to_string();
+        // wtf!(_hello);
         // assert_eq!(_hello, "Hello");
         let a = tcp.split();
         let b = (s, r);
