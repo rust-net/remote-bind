@@ -1,9 +1,9 @@
-use std::{error::Error, net::SocketAddr, fmt::Display};
+use std::{error::Error, net::SocketAddr, fmt::Display, str::FromStr};
 
 use quinn::{Endpoint, SendStream, RecvStream};
 use tokio::net::{tcp::{ReadHalf, WriteHalf}, TcpStream};
 
-use crate::{p2p_utils::{make_client_endpoint, make_server_endpoint}, unsafe_quic_client, i};
+use crate::{p2p_utils::{make_client_endpoint, make_server_endpoint}, unsafe_quic_client, *};
 
 pub fn get_client_endpoint(bind: Option<&str>) -> Result<Endpoint, Box<dyn Error>> {
     let client_addr = bind.unwrap_or("0.0.0.0:0").parse().unwrap();
@@ -34,7 +34,7 @@ pub enum NatType {
     /// 可以作为quic服务器
     Server,
     /// 通过端口增量猜测公网地址进行侦听
-    Nat4Increment(u16),
+    Nat4Increment(i32),
     /// 无法主动侦听
     Nat4Random,
 }
@@ -76,7 +76,7 @@ pub async fn question_stun(udp: &Endpoint, server_addr: &str) -> (NatType, Strin
     let port = port.parse::<u16>().unwrap() + 1;
     let my_udp_addr2 = get_stun_addr(udp, &format!("{host}:{port}")).await;
 
-    let nat_type = match (my_udp_addr1.ip().eq(&my_udp_addr2.ip()), my_udp_addr2.port() - my_udp_addr1.port()) {
+    let nat_type = match (my_udp_addr1.ip().eq(&my_udp_addr2.ip()), my_udp_addr2.port() as i32 - my_udp_addr1.port() as i32) {
         (true, 0) => NatType::Server,
         (true, increment) if increment < 10 => NatType::Nat4Increment(increment),
         _ => NatType::Nat4Random,
@@ -95,6 +95,12 @@ pub async fn get_stun_addr(udp: &Endpoint, server_addr: &str) -> SocketAddr {
     my_udp_addr.parse().unwrap()
 }
 
+pub fn increment_port(peer_udp_addr: &SocketAddr, increment: i32) -> SocketAddr {
+    let mut peer_udp_addr = peer_udp_addr.clone();
+    peer_udp_addr.set_port((peer_udp_addr.port() as i32 + increment) as u16);
+    peer_udp_addr
+}
+
 pub async fn bridge(udp: Endpoint, my_nat_type: NatType, my_udp_addr: &str, peer_nat_type: NatType, peer_udp_addr: &str, mut tcp: TcpStream,
     be_server_if_both_can: bool) {
     let hole_addr = udp.local_addr().unwrap();
@@ -108,13 +114,36 @@ pub async fn bridge(udp: Endpoint, my_nat_type: NatType, my_udp_addr: &str, peer
         (matches!(my_nat_type, NatType::Nat4Increment(_)) && peer_nat_type == NatType::Nat4Random) || // 对方绝无可能作为服务器，我可猜测端口
         (matches!(my_nat_type, NatType::Nat4Increment(_)) && matches!(peer_nat_type, NatType::Nat4Increment(_)) && be_server_if_both_can) // 双方都需要猜测端口，由函数参数决断
     ;
+    let peer_udp_addr = SocketAddr::from_str(peer_udp_addr).unwrap();
     if should_be_server {
         udp.rebind(std::net::UdpSocket::bind("0.0.0.0:0").unwrap()).unwrap(); // drop old client port
         // Make sure the server has a chance to clean up
         udp.wait_idle().await;
+        // 非开放型NAT需要打洞，这种情况下peer不能是随机型NAT
+        let hole = std::net::UdpSocket::bind(hole_addr).unwrap();
+        match peer_nat_type {
+            NatType::Server => {
+                let _hole = hole.send_to(b"Hello", peer_udp_addr);
+                i!("send_to {peer_udp_addr}");
+            },
+            NatType::Nat4Increment(increment) => {
+                for i in 0..5 {
+                    let peer_udp_addr = increment_port(&peer_udp_addr, i * increment);
+                    let _hole = hole.send_to(b"Hello", peer_udp_addr);
+                    i!("send_to {peer_udp_addr}");
+                }
+            },
+            // 非开放型NAT碰到随机型NAT，束手无策
+            NatType::Nat4Random => {
+                let _hole = hole.send_to(b"Hello", peer_udp_addr);
+                i!("send_to {peer_udp_addr}");
+            },
+        }
+        drop(hole);
+        // quic server
         let udp = get_server_endpoint(Some(&hole_addr.to_string())).unwrap();
         i!("UDP({my_udp_addr}) -> await connect");
-        let incoming_conn = udp.accept().await.unwrap(); // 非开放型NAT可能堵塞
+        let incoming_conn = udp.accept().await.unwrap();
         let visitor = incoming_conn.remote_address().to_string();
         i!("UDP({my_udp_addr}) -> {visitor} incoming");
         // assert_eq!(visitor, udp_addr);
@@ -124,15 +153,36 @@ pub async fn bridge(udp: Endpoint, my_nat_type: NatType, my_udp_addr: &str, peer
         let a = tcp.split();
         let b = (s, r);
         tcp2udp(a, b).await;
-    }
-    if !should_be_server {
-        let udp_conn = udp.connect(peer_udp_addr.parse().unwrap(), "localhost").unwrap()
-            .await.expect("无法连接UDP服务器");
+    } else { // To be client
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await; // 等待打洞
+        let udp_conn = match peer_nat_type {
+            NatType::Nat4Increment(increment) => {
+                let mut i = -1;
+                let mut f = || {
+                    let peer_udp_addr = increment_port(&peer_udp_addr, { i+=1; i } * increment);
+                    i!("try connecting: {peer_udp_addr}");
+                    udp.connect(peer_udp_addr, "localhost").unwrap()
+                };
+                tokio::select! {
+                    Ok(conn) = f() => conn,
+                    Ok(conn) = f() => conn,
+                    Ok(conn) = f() => conn,
+                    Ok(conn) = f() => conn,
+                    Ok(conn) = f() => conn,
+                    else => {
+                        return e!("无法连接UDP服务器");
+                    }
+                }
+            },
+            _ => {
+                i!("try connecting: {peer_udp_addr}");
+                udp.connect(peer_udp_addr, "localhost").unwrap().await.unwrap()
+            },
+        };
         let (s, mut r) = udp_conn.accept_bi().await.expect("无法读取UDP数据");
         let mut buf = vec![0; 5];
         r.read_exact(&mut buf).await.unwrap();
         let _hello = String::from_utf8_lossy(&buf).to_string();
-        // wtf!(_hello);
         // assert_eq!(_hello, "Hello");
         let a = tcp.split();
         let b = (s, r);
