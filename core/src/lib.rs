@@ -4,6 +4,7 @@ pub mod client;
 pub mod client_p2p;
 mod cmd;
 pub mod log;
+pub use macro_log::*;
 pub mod server;
 pub mod panic;
 pub mod time;
