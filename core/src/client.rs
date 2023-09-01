@@ -1,6 +1,6 @@
-use std::{io::{Error, ErrorKind}, future::Future};
+use std::{io::{Error, ErrorKind}, future::Future, time::Duration};
 
-use tokio::{net::TcpStream, task::JoinHandle};
+use tokio::{net::TcpStream, task::JoinHandle, time::timeout};
 
 use crate::{
     cmd::{read_cmd, write_cmd, Command},
@@ -39,7 +39,11 @@ impl Client {
         R: Future<Output = ()>,
     {
         loop {
-            let cmd: Command = read_cmd(&mut self.stream, "").await;
+            let Ok(cmd) = timeout(Duration::from_millis(10000), read_cmd(&mut self.stream, "")).await
+                else {
+                    e!("连接不活跃！");
+                    break;
+                };
             let local_service = local_service.clone();
             wtf!(&cmd);
             match cmd {
@@ -97,8 +101,12 @@ impl Client {
                     e!("会话异常：{}", e);
                     break;
                 }
-                Command::Nothing => {
-                    let _ = write_cmd(&mut self.stream, Command::Nothing, "").await;
+                Command::KeepAlive => {
+                    let Ok(_) = write_cmd(&mut self.stream, Command::KeepAlive, "").await
+                        else {
+                            e!("连接中断！");
+                            break;
+                        };
                 },
                 _ => continue,
             };

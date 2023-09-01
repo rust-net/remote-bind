@@ -16,3 +16,4 @@ uuid = { version = "1.3.4", features = ["v4"] }
 quinn = "0.10.2"
 rustls = { version = "0.21.6", default-features = false, features = ["quic", "dangerous_configuration"] }
 rcgen = "0.11.1"
+macro-log = "0.2.0"

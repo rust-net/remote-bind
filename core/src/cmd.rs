@@ -30,6 +30,7 @@ pub enum Command {
         nat_type: NatType,
         udp_addr: String, // Udp公网地址
     },
+    KeepAlive,
     Nothing,
     Success,
     Failure {
@@ -142,6 +143,7 @@ pub async fn read_cmd(tcp: &mut TcpStream, password: &str) -> Command {
         Some("failure") => Command::Failure {
             reason: cmds.into_iter().collect::<Vec<&str>>().join(" "),
         },
+        Some("keepalive") => Command::KeepAlive,
         _ => Command::Nothing,
     }
 }
@@ -168,6 +170,7 @@ pub async fn write_cmd(tcp: &mut TcpStream, cmd: Command, password: &str) -> std
         Command::Failure { reason } => {
             format!("failure {reason}")
         }
+        Command::KeepAlive => "keepalive".into(),
         _ => "".into(),
     };
     let len_password = password.len() as u8;

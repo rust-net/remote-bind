@@ -3,7 +3,7 @@ use std::{borrow::BorrowMut, sync::Arc, collections::HashMap, io::ErrorKind, tim
 use once_cell::sync::Lazy;
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::Mutex, task::JoinHandle, time::sleep,
+    sync::Mutex, task::JoinHandle, time::{sleep, timeout},
 };
 
 use crate::{
@@ -138,20 +138,20 @@ impl Server {
                                         // Bug: 代理人已经死掉还能写入命令
                                         let mut agent = agent.lock().await;
                                         let agent = agent.borrow_mut();
-                                        match write_cmd(agent, Command::Nothing, "").await {
+                                        match write_cmd(agent, Command::KeepAlive, "").await {
                                             Err(_) => {
-                                                i!("PORT({port}) -> Agent {agent_addr} offline, release the port!");
+                                                e!("PORT({port}) -> Agent {agent_addr} offline, release the port!");
                                                 task.abort();
                                                 break;
                                             }
                                             _ => ()
                                         }
-                                        match read_cmd(agent, "").await {
-                                            Command::Nothing => {
+                                        match timeout(Duration::from_millis(2000), read_cmd(agent, "")).await {
+                                            Ok(Command::KeepAlive) => {
                                                 // i!("AGENT({agent_addr}) -> Living"); 
                                             }
                                             _ => {
-                                                i!("PORT({port}) -> Agent {agent_addr} no response, release the port!");
+                                                e!("PORT({port}) -> Agent {agent_addr} no response, release the port!");
                                                 task.abort();
                                                 break;
                                             }
