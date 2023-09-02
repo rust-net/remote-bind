@@ -1,6 +1,8 @@
 use core::client::Client;
 use core::client_p2p::ClientP2P;
 use core::log::*;
+use core::panic;
+use std::future::Future;
 
 pub static mut SERVER: Option<String> = None;
 pub static mut PORT: u16 = 0;
@@ -18,6 +20,7 @@ fn print_help() {
 }
 
 fn main() {
+    panic::custom_panic();
     let mut args = std::env::args();
     if args.len() < 5 {
         return print_help();
@@ -31,7 +34,6 @@ fn main() {
             }
             v => v,
         };
-        // Some(args.nth(1).unwrap());
         let port = args.next().unwrap();
         PORT = match port.parse() {
             Ok(p) => p,
@@ -48,33 +50,39 @@ fn main() {
         }
         LOCAL_SERVICE = args.next().map(|s| s.to_string());
     }
-    if is_p2p {
-        serv_p2p();
-        return;
-    }
     loop {
-        serv();
+        if is_p2p {
+            serv_p2p();
+        } else {
+            serv();
+        }
         std::thread::sleep(std::time::Duration::from_millis(5000));
     }
+}
+
+fn task_guard(future: impl Future<Output = ()> + Send + 'static) {
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            let _ = tokio::spawn(future).await;
+        });
 }
 
 fn serv_p2p() {
     let server = unsafe { SERVER.as_ref().unwrap() };
     let port = unsafe { PORT };
     let local_service = unsafe { LOCAL_SERVICE.as_ref().unwrap() };
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async {
-            let p2p = ClientP2P::new(server.into(), port, local_service.into());
-            match p2p.serv().await {
-                Err(e) => {
-                    e!("启动失败：{e}");
-                },
-                _ => ()
-            };
-        });
+    task_guard(async move {
+        let p2p = ClientP2P::new(server.into(), port, local_service.into());
+        match p2p.serv().await {
+            Err(e) => {
+                e!("启动失败：{e}");
+            },
+            _ => ()
+        };
+    });
 }
 
 fn serv() {
@@ -82,11 +90,7 @@ fn serv() {
     let port = unsafe { PORT };
     let password = unsafe { PASSWORD.as_ref().unwrap() };
     let local_service = unsafe { LOCAL_SERVICE.as_ref().unwrap() };
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(boot(server.into(), port, password.into(), local_service.into()));
+    task_guard(boot(server.into(), port, password.into(), local_service.into()));
 }
 
 async fn boot(server: String, port: u16, password: String, local_service: String) {
