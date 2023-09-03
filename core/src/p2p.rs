@@ -1,7 +1,7 @@
-use std::{error::Error, net::SocketAddr, fmt::Display, str::FromStr};
+use std::{error::Error, net::SocketAddr, fmt::Display, str::FromStr, time::Duration};
 
 use quinn::{Endpoint, SendStream, RecvStream};
-use tokio::net::{tcp::{ReadHalf, WriteHalf}, TcpStream};
+use tokio::{net::{tcp::{ReadHalf, WriteHalf}, TcpStream}, time::timeout};
 
 use crate::{p2p_utils::{make_client_endpoint, make_server_endpoint}, unsafe_quic_client, *};
 
@@ -143,7 +143,11 @@ pub async fn bridge(udp: Endpoint, my_nat_type: NatType, my_udp_addr: &str, peer
         // quic server
         let udp = get_server_endpoint(Some(&hole_addr.to_string())).unwrap();
         i!("UDP({my_udp_addr}) -> await connect");
-        let incoming_conn = udp.accept().await.unwrap();
+        let Ok(Some(incoming_conn)) = timeout(Duration::from_millis(10000), udp.accept()).await
+            else {
+                e!("UDP({my_udp_addr}) -> timeout");
+                return;
+            };
         let visitor = incoming_conn.remote_address().to_string();
         i!("UDP({my_udp_addr}) -> {visitor} incoming");
         // assert_eq!(visitor, udp_addr);
